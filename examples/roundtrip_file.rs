@@ -44,7 +44,7 @@ async fn main() {
             // Note we don't track how many compressed bytes we wrote: we only
             // want to talk about decompressed values as those are the
             // interesting ones.
-            tempfile.write(line.as_ref()).unwrap();
+            tempfile.write_all(line.as_ref()).unwrap();
             if line_ix < (opt.num_lines / 2) {
                 uncompressed_bytes_until_middle += line.len();
             }

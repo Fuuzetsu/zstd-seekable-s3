@@ -116,17 +116,17 @@ impl<'a, A> Seek for SeekableS3Object<'a, A> {
 // Allows to simply say `s3.get_seekable_object` to be consistent with rest of
 // rusoto API.
 pub trait GetSeekableObject: Sized {
-    fn get_seekable_object<'a>(
-        &'a self,
+    fn get_seekable_object(
+        &self,
         input: GetObjectRequest,
-    ) -> Result<SeekableS3Object<'a, Self>, RusotoError<GetObjectError>>;
+    ) -> Result<SeekableS3Object<'_, Self>, RusotoError<GetObjectError>>;
 }
 
 impl GetSeekableObject for S3Client {
-    fn get_seekable_object<'a>(
-        &'a self,
+    fn get_seekable_object(
+        &self,
         input: GetObjectRequest,
-    ) -> Result<SeekableS3Object<'a, Self>, RusotoError<GetObjectError>> {
+    ) -> Result<SeekableS3Object<'_, Self>, RusotoError<GetObjectError>> {
         SeekableS3Object::new(self, input)
     }
 }

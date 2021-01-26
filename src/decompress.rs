@@ -49,7 +49,7 @@ where
 
         let decompressed_size = {
             let num_frames = seekable.get_num_frames();
-            if num_frames <= 0 {
+            if num_frames == 0 {
                 return Err(Error::NoFrames);
             }
             let last_frame_index = num_frames - 1;
@@ -133,7 +133,7 @@ impl<'a, A> std::io::Read for SeekableDecompress<'a, A> {
         // We do one last final check, this is to check that the slice we now
         // want to write the data to actually is able to store any bytes at all:
         // there's no point passing asking to decompress 0 bytes of data.
-        if buf.len() == 0 {
+        if buf.is_empty() {
             return Ok(0);
         }
 
@@ -160,7 +160,7 @@ impl<'a, A> std::io::Read for SeekableDecompress<'a, A> {
             self.decompressed_position = self
                 .decompressed_position
                 .checked_add(decompressed_bytes)
-                .ok_or(our_error(Error::DataTooLarge))?;
+                .ok_or_else(|| our_error(Error::DataTooLarge))?;
         }
 
         Ok(decompressed_bytes)

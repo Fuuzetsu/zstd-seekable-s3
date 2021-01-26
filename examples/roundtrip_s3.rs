@@ -1,4 +1,3 @@
-use env_logger;
 use rusoto_core::{HttpClient, Region};
 use rusoto_credential::DefaultCredentialsProvider;
 use rusoto_s3::{GetObjectRequest, PutObjectRequest, S3Client, S3};
@@ -91,7 +90,7 @@ async fn main() {
             if (line_ix as u64) < (opt.num_lines / 2) {
                 uncompressed_bytes_until_middle += uncompressed_data.len();
             }
-            compress.write(line.as_ref()).unwrap();
+            compress.write_all(line.as_ref()).unwrap();
         }
         // Make sure that once we're done writing data, we call end_compression
         // which will write the seek table.

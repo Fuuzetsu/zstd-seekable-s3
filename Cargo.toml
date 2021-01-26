@@ -10,11 +10,14 @@ homepage = "https://github.com/Fuuzetsu/zstd-seekable-s3"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+bytes = "1.0"
 futures = "0.3"
 rusoto_core = "0.46"
 rusoto_s3 = "0.46"
 tokio = "1.0"
 zstd-seekable = "0.1.7"
+pin-project-lite = "0.2"
+parking_lot = "0.11"
 
 [dev-dependencies]
 env_logger = "0.8"
@@ -22,4 +25,3 @@ rusoto_credential = "0.46"
 rusoto_sts = "0.46"
 structopt = "0.3"
 tempfile = "3.2"
-bytes = "1.0"
