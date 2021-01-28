@@ -1,7 +1,12 @@
-use std::io::{Read, Seek, Write};
+use futures::StreamExt;
+use std::{
+    cmp::Ordering,
+    io::{Read, Seek},
+};
 use structopt::StructOpt;
 use tempfile::tempfile;
-use zstd_seekable_s3::{SeekableCompress, SeekableDecompress};
+use tokio::io::AsyncWriteExt;
+use zstd_seekable_s3::{SeekableDecompress, StreamCompress};
 
 #[derive(Debug, StructOpt)]
 #[structopt(
@@ -28,52 +33,70 @@ async fn main() {
     let opt = Opt::from_args();
 
     // Make some file on the filesystem we can compress to.
-    let mut tempfile = tempfile().unwrap();
+    let mut tempfile = tokio::fs::File::from(tempfile().unwrap());
     // We want to start decompression from roughly the middle line so we track
     // how many bytes that is. Note that we track _uncompressed_ bytes which is
     // the thing we want to seek by later.
-    let mut uncompressed_bytes_until_middle = 0;
+    let uncompressed_bytes_until_middle =
+        std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    // Create stream of compressed data, storing middle of uncompressed data. We
+    // write the stream out to a file.
     {
-        // Wrap the reference: anything we write here will be automatically
-        // compressed by zstd into a seekable format.
-        let mut tempfile =
-            SeekableCompress::new(&mut tempfile, opt.compression_level, opt.frame_size).unwrap();
+        struct Lines {
+            current: usize,
+            uncompressed_bytes_until_middle: usize,
+        };
+        let middle = (opt.num_lines / 2) as usize;
+        let max_lines = opt.num_lines as usize;
+        let compressed_lines = futures::stream::unfold(
+            Lines {
+                current: 0,
+                uncompressed_bytes_until_middle: 0,
+            },
+            |mut lines: Lines| async {
+                if lines.current >= max_lines {
+                    None
+                } else {
+                    let line = format!("This is line {}.\n", lines.current);
+                    match lines.current.cmp(&middle) {
+                        Ordering::Less => lines.uncompressed_bytes_until_middle += line.len(),
+                        Ordering::Equal => {
+                            uncompressed_bytes_until_middle.store(
+                                lines.uncompressed_bytes_until_middle,
+                                std::sync::atomic::Ordering::SeqCst,
+                            );
+                        }
+                        Ordering::Greater => {}
+                    }
+                    lines.current += 1;
+                    Some((bytes::Bytes::copy_from_slice(line.as_bytes()), lines))
+                }
+            },
+        )
+        .compress(1, 1024)
+        .unwrap();
 
-        for line_ix in 0..opt.num_lines {
-            let line = format!("This is line {}.\n", line_ix);
-            // Note we don't track how many compressed bytes we wrote: we only
-            // want to talk about decompressed values as those are the
-            // interesting ones.
-            tempfile.write_all(line.as_ref()).unwrap();
-            if line_ix < (opt.num_lines / 2) {
-                uncompressed_bytes_until_middle += line.len();
+        let mut compressed_lines = Box::pin(compressed_lines);
+        // Write all the content out to the file.
+        while let Some(ebytes) = compressed_lines.next().await {
+            match ebytes {
+                Ok(bytes) => tempfile.write_all(&bytes).await.unwrap(),
+                Err(e) => panic!("{}", e),
             }
         }
-        // We have to invoke end_compression to write a seek table at the end. It
-        // will also happen automagically at drop time but that will ignore errors:
-        // you probably do NOT want that.
-        tempfile.end_compression().unwrap();
     }
+    // We should be finished writing everything by now and have the decompressed
+    // position of the middle line.
+    let uncompressed_bytes_until_middle =
+        uncompressed_bytes_until_middle.load(std::sync::atomic::Ordering::SeqCst);
 
-    // We're done compressing now. We go to the start of the compressed file and
-    // set it read-only just to show we're no longer tampering with it. In real
-    // code, you of course wouldn't be reading the file you just spent time
-    // compressing and you'd just open an old handle.
-    {
-        tempfile.seek(std::io::SeekFrom::Start(0)).unwrap();
-        let mut permissions = tempfile.metadata().unwrap().permissions();
-        permissions.set_readonly(true);
-    }
+    // We now go back into the std::fs::File and use the usual ecosystem to read
+    // the file. First thing we do is wrap the handle in a SeekableDecompressed
+    // object: this is what automatically translates any seeks and reads using
+    // decompressed byte values into seeks of compressed content and automatic
+    // decompression.
 
-    // Now that we are at the start of our temporary file (just as we would be
-    // if we just opened it), we want to decompress it from the middle. and show
-    // some of the content. We tracked earlier where the middle (of the lines)
-    // was.
-    let mut tempfile = SeekableDecompress::new(tempfile).unwrap();
-    // Now we have a SeekableDecompressed: any reads at given byte locations
-    // will result in reads in the _decompressed_ data which is exactly what we
-    // want. We start by seeking to the position we want to read within the
-    // decompressed data.
+    let mut tempfile = SeekableDecompress::new(tempfile.into_std().await).unwrap();
     tempfile
         .seek(std::io::SeekFrom::Start(
             uncompressed_bytes_until_middle as u64,
