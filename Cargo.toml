@@ -1,7 +1,7 @@
 [package]
 name = "zstd-seekable-s3"
 description = "Seekable zstd-compressed S3 objects."
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Mateusz Kowalczyk <fuuzetsu@fuuzetsu.co.uk>"]
 edition = "2018"
 license = "BSD-3-Clause"
@@ -29,5 +29,5 @@ tempfile = "3.2"
 tokio = { version = "1.1", features = ["fs"] }
 
 [features]
-default = ["rusoto_core/default", "rusoto_s3/default", "rusoto_sts/default"]
+default = ["rusoto_core/default", "rusoto_s3/default"]
 rustls = ["rusoto_core/rustls", "rusoto_s3/rustls"]
