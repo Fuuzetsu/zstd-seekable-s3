@@ -5,7 +5,7 @@ use std::convert::TryFrom;
 use std::io::{Error, ErrorKind, Read, Seek};
 use tokio::io::AsyncReadExt;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SeekableS3Object<A> {
     client: A,
     req: GetObjectRequest,
