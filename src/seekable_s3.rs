@@ -6,19 +6,16 @@ use std::io::{Error, ErrorKind, Read, Seek};
 use tokio::io::AsyncReadExt;
 
 #[derive(Debug)]
-pub struct SeekableS3Object<'a, A> {
-    client: &'a A,
+pub struct SeekableS3Object<A> {
+    client: A,
     req: GetObjectRequest,
     position: u64,
     // Updated when we first read the object.
     length: u64,
 }
 
-impl<'a, A> SeekableS3Object<'a, A> {
-    pub fn new(
-        client: &'a A,
-        mut req: GetObjectRequest,
-    ) -> Result<Self, RusotoError<GetObjectError>>
+impl<A> SeekableS3Object<A> {
+    pub fn new(client: A, mut req: GetObjectRequest) -> Result<Self, RusotoError<GetObjectError>>
     where
         A: S3,
     {
@@ -48,7 +45,7 @@ impl<'a, A> SeekableS3Object<'a, A> {
     }
 }
 
-impl<'a, A> Read for SeekableS3Object<'a, A>
+impl<'a, A> Read for SeekableS3Object<A>
 where
     A: S3,
 {
@@ -83,7 +80,7 @@ where
     }
 }
 
-impl<'a, A> Seek for SeekableS3Object<'a, A> {
+impl<A> Seek for SeekableS3Object<A> {
     fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
         // Implementation roughly lifted from std::io::cursor Seek trait
         // implementation.
@@ -117,16 +114,16 @@ impl<'a, A> Seek for SeekableS3Object<'a, A> {
 // rusoto API.
 pub trait GetSeekableObject: Sized {
     fn get_seekable_object(
-        &self,
+        self,
         input: GetObjectRequest,
-    ) -> Result<SeekableS3Object<'_, Self>, RusotoError<GetObjectError>>;
+    ) -> Result<SeekableS3Object<Self>, RusotoError<GetObjectError>>;
 }
 
 impl GetSeekableObject for S3Client {
     fn get_seekable_object(
-        &self,
+        self,
         input: GetObjectRequest,
-    ) -> Result<SeekableS3Object<'_, Self>, RusotoError<GetObjectError>> {
+    ) -> Result<SeekableS3Object<Self>, RusotoError<GetObjectError>> {
         SeekableS3Object::new(self, input)
     }
 }
