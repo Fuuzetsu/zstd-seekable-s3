@@ -12,8 +12,8 @@ homepage = "https://github.com/Fuuzetsu/zstd-seekable-s3"
 [dependencies]
 bytes = "1.0"
 futures = "0.3"
-rusoto_core = "0.46"
-rusoto_s3 = "0.46"
+rusoto_core = { version = "0.46", default-features = false }
+rusoto_s3 = { version = "0.46", default-features = false }
 tokio = "1.1"
 zstd-seekable = "0.1.7"
 pin-project-lite = "0.2"
@@ -22,7 +22,11 @@ parking_lot = "0.11"
 [dev-dependencies]
 env_logger = "0.8"
 rusoto_credential = "0.46"
-rusoto_sts = "0.46"
+rusoto_sts = { version = "0.46", default-features = false }
 structopt = "0.3"
 tempfile = "3.2"
 tokio = { version = "1.1", features = ["fs"] }
+
+[features]
+default = ["rusoto_core/default", "rusoto_s3/default", "rusoto_sts/default"]
+rustls = ["rusoto_core/rustls", "rusoto_s3/rustls", "rusoto_sts/rustls"]
