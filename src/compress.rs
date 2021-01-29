@@ -2,7 +2,7 @@ use bytes::Bytes;
 use futures::{ready, stream::FusedStream, Stream};
 use parking_lot::Mutex;
 use pin_project_lite::pin_project;
-use std::{marker::PhantomData, pin::Pin};
+use std::{convert::Infallible, marker::PhantomData, pin::Pin};
 use zstd_seekable::{self, CStream, SeekableCStream};
 
 pin_project! {
@@ -136,12 +136,45 @@ impl<S, E> Compress<S, E> {
 
 type ZstdError<A> = std::result::Result<A, zstd_seekable::Error>;
 
+#[derive(Debug)]
+pub enum CompressError<E> {
+    ZstdError(zstd_seekable::Error),
+    Underlying(E),
+}
+
+impl From<CompressError<Infallible>> for zstd_seekable::Error {
+    fn from(e: CompressError<Infallible>) -> Self {
+        match e {
+            CompressError::ZstdError(e) => e,
+            CompressError::Underlying(inf) => panic!("The impossible happened: {}", inf),
+        }
+    }
+}
+
+impl<E: std::fmt::Display> std::fmt::Display for CompressError<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CompressError::ZstdError(e) => write!(f, "Compression error: {}", e),
+            CompressError::Underlying(e) => write!(f, "Underlying error: {}", e),
+        }
+    }
+}
+
+impl<E: std::error::Error + std::fmt::Display + 'static> std::error::Error for CompressError<E> {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            CompressError::ZstdError(_) => None,
+            CompressError::Underlying(e) => Some(e),
+        }
+    }
+}
+
 impl<S, I, E> Stream for Compress<S, E>
 where
     S: Stream<Item = Result<I, E>>,
     I: std::borrow::Borrow<[u8]>,
 {
-    type Item = std::result::Result<Bytes, Result<zstd_seekable::Error, E>>;
+    type Item = std::result::Result<Bytes, CompressError<E>>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
@@ -157,7 +190,7 @@ where
         std::task::Poll::Ready(loop {
             match ready!(self.next_input(cx)) {
                 None => match self.end_stream() {
-                    Err(e) => break Some(Err(Ok(e))),
+                    Err(e) => break Some(Err(CompressError::ZstdError(e))),
                     Ok(compressed_data) => {
                         if compressed_data.is_empty() {
                             break None;
@@ -166,9 +199,9 @@ where
                         }
                     }
                 },
-                Some(Err(e)) => break Some(Err(Err(e))),
+                Some(Err(e)) => break Some(Err(CompressError::Underlying(e))),
                 Some(Ok(bytes)) => match self.compress_input(bytes.borrow()) {
-                    Err(e) => break Some(Err(Ok(e))),
+                    Err(e) => break Some(Err(CompressError::ZstdError(e))),
                     Ok(compressed_data) => {
                         // Maybe we want to return 0 length Bytes unconditionally?
                         // Who knows.

@@ -51,10 +51,6 @@ async fn main() {
         fn infallible_err<T>(t: T) -> Result<T, std::convert::Infallible> {
             Ok(t)
         }
-        // https://doc.rust-lang.org/std/result/enum.Result.html#method.into_ok
-        fn into_ok<T>(t: Result<T, std::convert::Infallible>) -> T {
-            t.unwrap()
-        }
         let compressed_lines = futures::stream::unfold(
             Lines {
                 current: 0,
@@ -89,7 +85,7 @@ async fn main() {
         while let Some(ebytes) = compressed_lines.next().await {
             match ebytes {
                 Ok(bytes) => tempfile.write_all(&bytes).await.unwrap(),
-                Err(e) => panic!("{}", into_ok(e)),
+                Err(e) => panic!("{}", zstd_seekable::Error::from(e)),
             }
         }
     }
