@@ -1,4 +1,4 @@
-use futures::TryStreamExt;
+use futures::{StreamExt, TryStreamExt};
 use parking_lot::Mutex;
 use rusoto_core::{HttpClient, Region, RusotoError};
 use rusoto_credential::DefaultCredentialsProvider;
@@ -125,7 +125,10 @@ async fn main() {
             },
         );
 
-        let compressed_lines_stream = uncompressed_lines_stream.compress(1, 1024).unwrap();
+        let compressed_lines_stream = uncompressed_lines_stream
+            .map(infallible_err)
+            .compress(1, 1024)
+            .unwrap();
 
         // We don't know the size of the output so we must either dump the
         // content to memory or use multi-part uploads. We go with the latter
@@ -163,7 +166,7 @@ async fn main() {
         // A collection of uploaded parts or a failure.
         let completed_parts = compressed_lines_stream
             // Lift the compression error into common type
-            .map_err(Error::CompressionError)
+            .map_err(|e| Error::CompressionError(into_ok(e)))
             // Pass to stream that chunks into parts (TODO: this is just framing
             // data at this point, maybe we can use some tokio helpers?)
             .upload_parts(part_template, 5 * 1024 * 1024)
@@ -270,4 +273,12 @@ async fn main() {
         );
         println!("{}", string_data);
     }
+}
+
+fn infallible_err<T>(t: T) -> Result<T, std::convert::Infallible> {
+    Ok(t)
+}
+// https://doc.rust-lang.org/std/result/enum.Result.html#method.into_ok
+fn into_ok<T>(t: Result<T, std::convert::Infallible>) -> T {
+    t.unwrap()
 }

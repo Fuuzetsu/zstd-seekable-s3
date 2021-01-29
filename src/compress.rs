@@ -2,20 +2,21 @@ use bytes::Bytes;
 use futures::{ready, stream::FusedStream, Stream};
 use parking_lot::Mutex;
 use pin_project_lite::pin_project;
-use std::{borrow::Borrow, pin::Pin};
+use std::{marker::PhantomData, pin::Pin};
 use zstd_seekable::{self, CStream, SeekableCStream};
 
 pin_project! {
-    pub struct Compress<S> {
+    pub struct Compress<S, E> {
         #[pin]
         stream: S,
         cstream: Mutex<SeekableCStream>,
         buf_out: Box<[u8]>,
         wrote_seek_table: bool,
+        error_type: PhantomData<E>,
     }
 }
 
-impl<S> std::fmt::Debug for Compress<S>
+impl<S, E> std::fmt::Debug for Compress<S, E>
 where
     S: Stream + std::fmt::Debug,
     S::Item: std::fmt::Debug,
@@ -31,14 +32,22 @@ where
 }
 
 pub trait StreamCompress {
-    fn compress(self, compression_level: usize, frame_size: usize) -> ZstdError<Compress<Self>>
+    fn compress<I, E>(
+        self,
+        compression_level: usize,
+        frame_size: usize,
+    ) -> ZstdError<Compress<Self, E>>
     where
-        Self: Stream + Sized,
-        Self::Item: std::borrow::Borrow<[u8]>;
+        Self: Stream<Item = Result<I, E>> + Sized,
+        I: std::borrow::Borrow<[u8]>;
 }
 
 impl<S> StreamCompress for S {
-    fn compress(self, compression_level: usize, frame_size: usize) -> ZstdError<Compress<Self>>
+    fn compress<I, E>(
+        self,
+        compression_level: usize,
+        frame_size: usize,
+    ) -> ZstdError<Compress<Self, E>>
     where
         // By having the bounds at the function level rather than trait level,
         // we get a better error message: when trying to use compress(), we'll
@@ -46,17 +55,18 @@ impl<S> StreamCompress for S {
         // This is in contrast to putting the bounds on the impl itself: when we
         // do that, we get messages about the method not being found at all and
         // given a more cryptic error message about missing bounds on the S.
-        S: Stream + Sized,
-        S::Item: std::borrow::Borrow<[u8]>,
+        Self: Stream<Item = Result<I, E>> + Sized,
+        I: std::borrow::Borrow<[u8]>,
     {
         Compress::new(self, compression_level, frame_size)
     }
 }
 
-impl<S> Compress<S> {
-    fn new(stream: S, compression_level: usize, frame_size: usize) -> ZstdError<Self>
+impl<S, E> Compress<S, E> {
+    fn new<I>(stream: S, compression_level: usize, frame_size: usize) -> ZstdError<Self>
     where
-        S: Stream,
+        S: Stream<Item = Result<I, E>>,
+        I: std::borrow::Borrow<[u8]>,
     {
         let cstream =
             parking_lot::const_mutex(SeekableCStream::new(compression_level, frame_size)?);
@@ -66,15 +76,17 @@ impl<S> Compress<S> {
             cstream,
             buf_out,
             wrote_seek_table: false,
+            error_type: PhantomData,
         })
     }
 
-    fn next_input(
+    fn next_input<I>(
         self: &mut Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<S::Item>>
     where
-        S: Stream,
+        S: Stream<Item = Result<I, E>>,
+        I: std::borrow::Borrow<[u8]>,
     {
         self.as_mut().project().stream.poll_next(cx)
     }
@@ -124,12 +136,12 @@ impl<S> Compress<S> {
 
 type ZstdError<A> = std::result::Result<A, zstd_seekable::Error>;
 
-impl<S> Stream for Compress<S>
+impl<S, I, E> Stream for Compress<S, E>
 where
-    S: Stream,
-    S::Item: std::borrow::Borrow<[u8]>,
+    S: Stream<Item = Result<I, E>>,
+    I: std::borrow::Borrow<[u8]>,
 {
-    type Item = ZstdError<Bytes>;
+    type Item = std::result::Result<Bytes, Result<zstd_seekable::Error, E>>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
@@ -145,7 +157,7 @@ where
         std::task::Poll::Ready(loop {
             match ready!(self.next_input(cx)) {
                 None => match self.end_stream() {
-                    Err(e) => break Some(Err(e)),
+                    Err(e) => break Some(Err(Ok(e))),
                     Ok(compressed_data) => {
                         if compressed_data.is_empty() {
                             break None;
@@ -154,8 +166,9 @@ where
                         }
                     }
                 },
-                Some(bytes) => match self.compress_input(bytes.borrow()) {
-                    Err(e) => break Some(Err(e)),
+                Some(Err(e)) => break Some(Err(Err(e))),
+                Some(Ok(bytes)) => match self.compress_input(bytes.borrow()) {
+                    Err(e) => break Some(Err(Ok(e))),
                     Ok(compressed_data) => {
                         // Maybe we want to return 0 length Bytes unconditionally?
                         // Who knows.
@@ -169,10 +182,10 @@ where
     }
 }
 
-impl<S> FusedStream for Compress<S>
+impl<S, I, E> FusedStream for Compress<S, E>
 where
-    S: Stream,
-    S::Item: std::borrow::Borrow<[u8]>,
+    S: Stream<Item = Result<I, E>>,
+    I: std::borrow::Borrow<[u8]>,
 {
     fn is_terminated(&self) -> bool {
         self.wrote_seek_table
