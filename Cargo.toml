@@ -1,5 +1,6 @@
 [package]
 name = "zstd-seekable-s3"
+description = "Seekable zstd-compressed S3 objects."
 version = "0.1.0"
 authors = ["Mateusz Kowalczyk <fuuzetsu@fuuzetsu.co.uk>"]
 edition = "2018"
