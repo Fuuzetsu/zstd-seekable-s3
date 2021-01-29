@@ -29,4 +29,4 @@ tokio = { version = "1.1", features = ["fs"] }
 
 [features]
 default = ["rusoto_core/default", "rusoto_s3/default", "rusoto_sts/default"]
-rustls = ["rusoto_core/rustls", "rusoto_s3/rustls", "rusoto_sts/rustls"]
+rustls = ["rusoto_core/rustls", "rusoto_s3/rustls"]
