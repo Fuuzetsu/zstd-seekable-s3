@@ -32,8 +32,7 @@ struct Opt {
 //
 // Beware: the resulting object is not deleted afterwards. You have to do it
 // yourself.
-#[tokio::main]
-async fn main() {
+fn main() {
     let opt = Opt::from_args();
 
     env_logger::init();
@@ -83,8 +82,10 @@ async fn main() {
             key: opt.key.to_owned(),
             ..Default::default()
         };
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
         // We get a wrapper over S3 object that does knows how to do seeking of a file. Note however that this is just the raw data!
-        let seekable_raw_object = s3.get_seekable_object(req).unwrap();
+        let seekable_raw_object = s3.get_seekable_object(rt, req).unwrap();
 
         // We wrap the seekable S3 object with a shim that actually knows about the
         // compression.

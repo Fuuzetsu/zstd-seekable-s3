@@ -59,7 +59,7 @@ async fn main() {
     // Make the S3 client. If the user specified a role, make sure to assume it
     // and refresh it as needed. Otherwise, just use the default credentials
     // provider which refreshes credentials as-needed, if-needed.
-    let s3: S3Client = match opt.role_arn {
+    let s3: S3Client = match opt.role_arn.to_owned() {
         Some(role_arn) => {
             let provider = StsAssumeRoleSessionCredentialsProvider::new(
                 sts,
@@ -82,8 +82,9 @@ async fn main() {
         }
     };
 
+    let runtime = tokio::runtime::Runtime::new().unwrap();
     let uncompressed_bytes_until_middle: Arc<Mutex<Option<usize>>> = Arc::new(Mutex::new(None));
-    {
+    runtime.block_on(async {
         // Generate some line stream, track how many uncompressed bytes we're
         // yielding until we get to half-way point.
         struct Lines {
@@ -225,7 +226,7 @@ async fn main() {
                 Ok(_) => panic!("{}", e),
             }
         };
-    }
+    });
 
     // We're done uploading the object so we should have the information about
     // the uncompressed part in the shared reference.
@@ -238,11 +239,11 @@ async fn main() {
     {
         let req = GetObjectRequest {
             bucket: opt.bucket.to_owned(),
-            key: opt.key.to_owned(),
+            key: opt.key,
             ..Default::default()
         };
         // We get a wrapper over S3 object that does knows how to do seeking of a file. Note however that this is just the raw data!
-        let seekable_raw_object = s3.get_seekable_object(req).unwrap();
+        let seekable_raw_object = s3.get_seekable_object(runtime, req).unwrap();
         // We wrap the seekable S3 object with a shim that actually knows about the
         // compression.
         let mut seekable_uncompressed_object =
