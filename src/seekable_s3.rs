@@ -3,15 +3,43 @@ use rusoto_core::RusotoError;
 use rusoto_s3::{GetObjectError, GetObjectRequest, S3Client, S3};
 use std::convert::TryFrom;
 use std::io::{Error, ErrorKind, Read, Seek};
+use std::pin::Pin;
+use tokio::io::AsyncRead;
 use tokio::io::AsyncReadExt;
 
-#[derive(Debug, Clone)]
 pub struct SeekableS3Object<A> {
     client: A,
     req: GetObjectRequest,
     position: u64,
     // Updated when we first read the object.
     length: u64,
+    body: Option<Pin<Box<dyn AsyncRead + Send + Sync>>>,
+}
+
+impl<A: std::fmt::Debug> std::fmt::Debug for SeekableS3Object<A> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SeekableS3Object")
+            .field("client", &self.client)
+            .field("req", &self.req)
+            .field("position", &self.position)
+            .field("length", &self.length)
+            // finish_non_exhaustive is unstable
+            .finish()
+    }
+}
+
+// Cloning SeekableS3Object gets rid of any body we may have. On the next read,
+// a new request will be performed to retrieve it again.
+impl<A: Clone> Clone for SeekableS3Object<A> {
+    fn clone(&self) -> Self {
+        SeekableS3Object {
+            client: self.client.clone(),
+            req: self.req.clone(),
+            position: self.position,
+            length: self.length,
+            body: None,
+        }
+    }
 }
 
 impl<A> SeekableS3Object<A> {
@@ -24,6 +52,16 @@ impl<A> SeekableS3Object<A> {
         // Alternatively we may want to use HeadObject request instead.
         req.range = None;
         let object = block_on(client.get_object(req.to_owned()))?;
+        let body = object
+            .body
+            // I don't understand why the cast is needed but otherwise we get
+            //
+            // note: expected enum `Option<Box<(dyn tokio::io::AsyncRead + Sync + std::marker::Send + 'static)>>`
+            // found enum `Option<Box<impl std::marker::Send+Sync+tokio::io::AsyncRead>>`
+            //
+            // https://stackoverflow.com/questions/61259521/struct-with-boxed-impl-trait
+            .map(|bs| Box::pin(bs.into_async_read()) as Pin<Box<dyn AsyncRead + Send + Sync>>);
+
         let length = match object.content_length {
             None => Err(RusotoError::Validation(
                 "Content length not set in response.".to_owned(),
@@ -36,12 +74,44 @@ impl<A> SeekableS3Object<A> {
                 ))),
             },
         }?;
+
         Ok(SeekableS3Object {
             client,
             req,
             position: 0,
             length,
+            body,
         })
+    }
+
+    // Sets current position. If the position actually changes, invalidates the
+    // current object body.
+    //
+    // You should only use this if you're not consuming the body. If the body is
+    // being consumed, you just want to update the position directly based on
+    // how much you've consumed.
+    fn set_position(&mut self, new_position: u64) {
+        if self.position != new_position {
+            self.position = new_position;
+            self.body = None;
+        }
+    }
+
+    // Reads some data from the body while remebering to update the position.
+    async fn read_body(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if let Some(body) = &mut self.body {
+            let bytes_read = body.read(buf).await?;
+            // If we managed to read something, make sure to update position.
+            // This saves us work if we something calls seek into the new
+            // position.
+            self.position += bytes_read as u64;
+            // Force fresh requests each time, debug.
+            self.body = None;
+            Ok(bytes_read)
+        } else {
+            // No body.
+            Ok(0)
+        }
     }
 }
 
@@ -56,27 +126,25 @@ where
             return Ok(0);
         }
 
-        self.req.range = Some(format!("bytes={}-", self.position));
-        let result = block_on(async {
-            let object = self
-                .client
-                .get_object(self.req.to_owned())
-                .await
-                .map_err(|e| Error::new(ErrorKind::Other, e))?;
-            // No async closures so we have to use match instead of map_or.
-            match object.body {
-                // I'm not sure if this is correct or empty body should be some
-                // error... leave it for now.
-                None => Ok(0),
-                Some(body) => body.into_async_read().read(buf).await,
-            }
-        });
-        // If we managed to read some bytes, remember how far we got so that
-        // next time we read, we read a fresh chunk.
-        if let Ok(bytes_read) = result {
-            self.position += bytes_read as u64;
+        // We may have a body already present in which case we just read from
+        // it. Only if we don't have the body (for example, we performed a seek)
+        // do we issue any new requests.
+        if self.body.is_some() {
+            return block_on(self.read_body(buf));
         }
-        result
+
+        // We didn't have existing body to read from: probably we have done a
+        // seek. Get the body at the new position, read some data and store the
+        // new body for the future.
+        self.req.range = Some(format!("bytes={}-", self.position));
+        let object = block_on(self.client.get_object(self.req.to_owned()))
+            .map_err(|e| Error::new(ErrorKind::Other, e))?;
+
+        self.body = object
+            .body
+            .map(|bs| Box::pin(bs.into_async_read()) as Pin<Box<dyn AsyncRead + Send + Sync>>);
+
+        block_on(self.read_body(buf))
     }
 }
 
@@ -86,7 +154,7 @@ impl<A> Seek for SeekableS3Object<A> {
         // implementation.
         let (base_pos, offset) = match pos {
             std::io::SeekFrom::Start(pos) => {
-                self.position = pos;
+                self.set_position(pos);
                 return Ok(pos);
             }
             std::io::SeekFrom::End(pos) => (self.length, pos),
@@ -99,7 +167,7 @@ impl<A> Seek for SeekableS3Object<A> {
         };
         match new_pos {
             Some(n) => {
-                self.position = n;
+                self.set_position(n);
                 Ok(self.position)
             }
             None => Err(Error::new(
