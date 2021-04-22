@@ -6,17 +6,17 @@ use std::pin::Pin;
 use tokio::io::AsyncRead;
 use tokio::io::AsyncReadExt;
 
-pub struct SeekableS3Object<A> {
+pub struct SeekableS3Object<'a, A> {
     client: A,
     req: GetObjectRequest,
     position: u64,
     // Updated when we first read the object.
     length: u64,
     body: Option<Pin<Box<dyn AsyncRead + Send + Sync>>>,
-    runtime: tokio::runtime::Runtime,
+    runtime: &'a tokio::runtime::Runtime,
 }
 
-impl<A: std::fmt::Debug> std::fmt::Debug for SeekableS3Object<A> {
+impl<A: std::fmt::Debug> std::fmt::Debug for SeekableS3Object<'_, A> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SeekableS3Object")
             .field("client", &self.client)
@@ -28,10 +28,10 @@ impl<A: std::fmt::Debug> std::fmt::Debug for SeekableS3Object<A> {
     }
 }
 
-impl<A> SeekableS3Object<A> {
+impl<'a, A> SeekableS3Object<'a, A> {
     pub fn new(
         client: A,
-        runtime: tokio::runtime::Runtime,
+        runtime: &'a tokio::runtime::Runtime,
         mut req: GetObjectRequest,
     ) -> Result<Self, RusotoError<GetObjectError>>
     where
@@ -104,7 +104,7 @@ impl<A> SeekableS3Object<A> {
     }
 }
 
-impl<'a, A> Read for SeekableS3Object<A>
+impl<'a, A> Read for SeekableS3Object<'_, A>
 where
     A: S3,
 {
@@ -139,7 +139,7 @@ where
     }
 }
 
-impl<A> Seek for SeekableS3Object<A> {
+impl<A> Seek for SeekableS3Object<'_, A> {
     fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
         // Implementation roughly lifted from std::io::cursor Seek trait
         // implementation.
@@ -174,17 +174,17 @@ impl<A> Seek for SeekableS3Object<A> {
 pub trait GetSeekableObject: Sized {
     fn get_seekable_object(
         self,
-        runtime: tokio::runtime::Runtime,
+        runtime: &tokio::runtime::Runtime,
         input: GetObjectRequest,
-    ) -> Result<SeekableS3Object<Self>, RusotoError<GetObjectError>>;
+    ) -> Result<SeekableS3Object<'_, Self>, RusotoError<GetObjectError>>;
 }
 
 impl GetSeekableObject for S3Client {
     fn get_seekable_object(
         self,
-        runtime: tokio::runtime::Runtime,
+        runtime: &tokio::runtime::Runtime,
         input: GetObjectRequest,
-    ) -> Result<SeekableS3Object<Self>, RusotoError<GetObjectError>> {
+    ) -> Result<SeekableS3Object<'_, Self>, RusotoError<GetObjectError>> {
         SeekableS3Object::new(self, runtime, input)
     }
 }

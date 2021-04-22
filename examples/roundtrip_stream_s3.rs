@@ -243,7 +243,7 @@ async fn main() {
             ..Default::default()
         };
         // We get a wrapper over S3 object that does knows how to do seeking of a file. Note however that this is just the raw data!
-        let seekable_raw_object = s3.get_seekable_object(runtime, req).unwrap();
+        let seekable_raw_object = s3.get_seekable_object(&runtime, req).unwrap();
         // We wrap the seekable S3 object with a shim that actually knows about the
         // compression.
         let mut seekable_uncompressed_object =
