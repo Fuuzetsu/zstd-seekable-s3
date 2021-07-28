@@ -12,7 +12,7 @@ pub struct SeekableS3Object<'a, A> {
     position: u64,
     // Updated when we first read the object.
     length: u64,
-    body: Option<Pin<Box<dyn AsyncRead + Send + Sync>>>,
+    body: Option<Pin<Box<dyn AsyncRead + Send>>>,
     runtime: &'a tokio::runtime::Runtime,
 }
 
@@ -50,7 +50,7 @@ impl<'a, A> SeekableS3Object<'a, A> {
             // found enum `Option<Box<impl std::marker::Send+Sync+tokio::io::AsyncRead>>`
             //
             // https://stackoverflow.com/questions/61259521/struct-with-boxed-impl-trait
-            .map(|bs| Box::pin(bs.into_async_read()) as Pin<Box<dyn AsyncRead + Send + Sync>>);
+            .map(|bs| Box::pin(bs.into_async_read()) as Pin<Box<dyn AsyncRead + Send>>);
 
         let length = match object.content_length {
             None => Err(RusotoError::Validation(
@@ -133,7 +133,7 @@ where
 
         self.body = object
             .body
-            .map(|bs| Box::pin(bs.into_async_read()) as Pin<Box<dyn AsyncRead + Send + Sync>>);
+            .map(|bs| Box::pin(bs.into_async_read()) as Pin<Box<dyn AsyncRead + Send>>);
 
         self.read_body(buf)
     }
