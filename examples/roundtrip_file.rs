@@ -8,7 +8,7 @@ use tempfile::tempfile;
 use tokio::io::AsyncWriteExt;
 use zstd_seekable_s3::{SeekableDecompress, StreamCompress};
 
-#[derive(Debug, StructOpt)]
+#[derive(StructOpt)]
 #[structopt(
     name = "roundtrip_file",
     about = "Compress and uncompress some file via seekable interfaces.",
@@ -45,7 +45,7 @@ async fn main() {
         struct Lines {
             current: usize,
             uncompressed_bytes_until_middle: usize,
-        };
+        }
         let middle = (opt.num_lines / 2) as usize;
         let max_lines = opt.num_lines as usize;
         fn infallible_err<T>(t: T) -> Result<T, std::convert::Infallible> {
@@ -77,7 +77,7 @@ async fn main() {
             },
         )
         .map(infallible_err)
-        .compress(1, 1024)
+        .compress(opt.compression_level, opt.frame_size)
         .unwrap();
 
         let mut compressed_lines = Box::pin(compressed_lines);
@@ -109,9 +109,8 @@ async fn main() {
 
     // Read some data, put it back into UTF8 and show it on the screen.
     {
-        // 256 bytes should be enough to prove the point.
-        let mut decompressed_content = [0; 256];
-        let decompressed_bytes = tempfile.read(&mut decompressed_content).unwrap();
+        let mut decompressed_content = vec![0; opt.buffer_size];
+        let decompressed_bytes = tempfile.read(decompressed_content.as_mut_slice()).unwrap();
         let string_data = std::str::from_utf8(&decompressed_content[..decompressed_bytes]).unwrap();
         // From here you should see lines from the middle of the file, without
         // relation to where the compressed data might actually be in the file.

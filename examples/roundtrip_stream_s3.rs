@@ -16,7 +16,7 @@ use std::{
 use structopt::StructOpt;
 use zstd_seekable_s3::{GetSeekableObject, SeekableDecompress, StreamCompress, StreamUploadParts};
 
-#[derive(Debug, StructOpt)]
+#[derive(StructOpt)]
 #[structopt(
     name = "roundtrip_s3",
     about = "Compress and uncompress some S3 object via seekable interfaces.",
@@ -92,7 +92,7 @@ async fn main() {
             max_lines: u64,
             uncompressed_bytes_until_middle: usize,
             out_ref: Arc<Mutex<Option<usize>>>,
-        };
+        }
 
         let uncompressed_lines_stream = futures::stream::unfold(
             Lines {
@@ -128,7 +128,7 @@ async fn main() {
 
         let compressed_lines_stream = uncompressed_lines_stream
             .map(infallible_err)
-            .compress(1, 1024)
+            .compress(opt.compression_level, opt.frame_size)
             .unwrap();
 
         // We don't know the size of the output so we must either dump the
@@ -162,7 +162,7 @@ async fn main() {
         enum Error {
             CompressionError(zstd_seekable::Error),
             PartUploadError(RusotoError<UploadPartError>),
-        };
+        }
 
         // A collection of uploaded parts or a failure.
         let completed_parts = compressed_lines_stream
@@ -262,9 +262,9 @@ async fn main() {
         // read behaviour is implemented: invoking read() gets subsequent version of
         // the file: you could read() an S3 file all the way from the start to the
         // end if you wanted which would basically result in a normal decompression.
-        let mut decompressed_content = [0; 256];
+        let mut decompressed_content = vec![0; opt.buffer_size];
         let decompressed_bytes = seekable_uncompressed_object
-            .read(&mut decompressed_content)
+            .read(decompressed_content.as_mut_slice())
             .unwrap();
         let string_data = std::str::from_utf8(&decompressed_content[..decompressed_bytes]).unwrap();
         println!(
