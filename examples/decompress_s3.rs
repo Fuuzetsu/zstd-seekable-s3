@@ -85,7 +85,7 @@ fn main() {
         let rt = tokio::runtime::Runtime::new().unwrap();
 
         // We get a wrapper over S3 object that does knows how to do seeking of a file. Note however that this is just the raw data!
-        let seekable_raw_object = s3.get_seekable_object(&rt, req).unwrap();
+        let seekable_raw_object = s3.get_seekable_object(&rt, None, req).unwrap().unwrap();
 
         // We wrap the seekable S3 object with a shim that actually knows about the
         // compression.
