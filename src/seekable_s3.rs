@@ -48,7 +48,10 @@ impl<'a, A> SeekableS3Object<'a, A> {
         let get_object = client.get_object(req.to_owned());
 
         let object = match read_timeout {
-            Some(timeout) => runtime.block_on(tokio::time::timeout(timeout, get_object))?,
+            Some(timeout) => {
+                let _executor = runtime.enter();
+                runtime.block_on(tokio::time::timeout(timeout, get_object))?
+            }
             None => runtime.block_on(get_object),
         };
 
@@ -112,13 +115,17 @@ impl<'a, A> SeekableS3Object<'a, A> {
     fn read_body(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         if let Some(body) = &mut self.body {
             let bytes_read = match self.read_timeout {
-                Some(timeout) => match self
-                    .runtime
-                    .block_on(tokio::time::timeout(timeout, body.read(buf)))
-                {
-                    Ok(r) => r,
-                    Err(timeout_err) => Err(Error::new(ErrorKind::TimedOut, timeout_err)),
-                },
+                Some(timeout) => {
+                    let _executor = self.runtime.enter();
+                    match self
+                        .runtime
+                        .block_on(tokio::time::timeout(timeout, body.read(buf)))
+                    {
+                        Ok(r) => r,
+                        Err(timeout_err) => Err(Error::new(ErrorKind::TimedOut, timeout_err)),
+                    }
+                }
+
                 None => self.runtime.block_on(body.read(buf)),
             }?;
             // If we managed to read something, make sure to update position.
@@ -168,13 +175,16 @@ where
             .map_err(|e| Error::new(ErrorKind::Other, e));
 
         let object = match self.read_timeout {
-            Some(timeout) => match self
-                .runtime
-                .block_on(tokio::time::timeout(timeout, get_object))
-            {
-                Ok(r) => r,
-                Err(timeout_err) => Err(Error::new(ErrorKind::TimedOut, timeout_err)),
-            },
+            Some(timeout) => {
+                let _executor = self.runtime.enter();
+                match self
+                    .runtime
+                    .block_on(tokio::time::timeout(timeout, get_object))
+                {
+                    Ok(r) => r,
+                    Err(timeout_err) => Err(Error::new(ErrorKind::TimedOut, timeout_err)),
+                }
+            }
             None => self.runtime.block_on(get_object),
         }?;
 

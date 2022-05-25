@@ -47,8 +47,7 @@ struct Opt {
 //
 // Beware: the resulting object is not deleted afterwards. You have to do it
 // yourself.
-#[tokio::main]
-async fn main() {
+fn main() {
     let opt = Opt::from_args();
 
     env_logger::init();
