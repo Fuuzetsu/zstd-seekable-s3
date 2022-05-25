@@ -120,7 +120,7 @@ impl<'a, A> std::io::Read for SeekableDecompress<'a, A> {
         // of the remaining data so even if the user passed in a large buffer,
         // make sure to only pass in the correctly-sized slice if there isn't
         // enough data to fill the whole buffer.
-        let mut buf = match usize::try_from(data_left) {
+        let buf = match usize::try_from(data_left) {
             Ok(data_left) if data_left < buf.len() => &mut buf[..data_left],
             // The amount of data in data_left was too big for usize so we
             // can safely assume the existing buffer size _must_ be smaller
@@ -144,7 +144,7 @@ impl<'a, A> std::io::Read for SeekableDecompress<'a, A> {
         // decompressed data at current position now.
         let decompressed_bytes = self
             .seekable
-            .decompress(&mut buf, self.decompressed_position)
+            .decompress(buf, self.decompressed_position)
             .map_err(zstd_error)?;
 
         // Bump the position by however many bytes we have managed to read in.
