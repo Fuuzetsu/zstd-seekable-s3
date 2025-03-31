@@ -1,27 +1,23 @@
+use bpaf::{Bpaf, Parser};
 use futures::StreamExt;
 use std::{
     cmp::Ordering,
     io::{Read, Seek},
 };
-use structopt::StructOpt;
 use tempfile::tempfile;
 use tokio::io::AsyncWriteExt;
 use zstd_seekable_s3::{SeekableDecompress, StreamCompress};
 
-#[derive(StructOpt)]
-#[structopt(
-    name = "roundtrip_file",
-    about = "Compress and uncompress some file via seekable interfaces.",
-    rename_all = "kebab"
-)]
+/// Compress and uncompress some file via seekable interfaces.
+#[derive(Debug, Bpaf)]
 struct Opt {
-    #[structopt(default_value = "256")]
+    #[bpaf(fallback(256))]
     buffer_size: usize,
-    #[structopt(default_value = "5000")]
+    #[bpaf(fallback(5000))]
     num_lines: u64,
-    #[structopt(default_value = "1024")]
+    #[bpaf(fallback(1024))]
     frame_size: usize,
-    #[structopt(default_value = "1")]
+    #[bpaf(fallback(1))]
     compression_level: usize,
 }
 
@@ -30,7 +26,12 @@ struct Opt {
 // data from the middle.
 #[tokio::main]
 async fn main() {
-    let opt = Opt::from_args();
+    let Opt {
+        buffer_size,
+        num_lines,
+        frame_size,
+        compression_level,
+    } = opt().to_options().run();
 
     // Make some file on the filesystem we can compress to.
     let mut tempfile = tokio::fs::File::from(tempfile().unwrap());
@@ -46,8 +47,8 @@ async fn main() {
             current: usize,
             uncompressed_bytes_until_middle: usize,
         }
-        let middle = (opt.num_lines / 2) as usize;
-        let max_lines = opt.num_lines as usize;
+        let middle = (num_lines / 2) as usize;
+        let max_lines = num_lines as usize;
         fn infallible_err<T>(t: T) -> Result<T, std::convert::Infallible> {
             Ok(t)
         }
@@ -77,7 +78,7 @@ async fn main() {
             },
         )
         .map(infallible_err)
-        .compress(opt.compression_level, opt.frame_size)
+        .compress(compression_level, frame_size)
         .unwrap();
 
         let mut compressed_lines = Box::pin(compressed_lines);
@@ -109,7 +110,7 @@ async fn main() {
 
     // Read some data, put it back into UTF8 and show it on the screen.
     {
-        let mut decompressed_content = vec![0; opt.buffer_size];
+        let mut decompressed_content = vec![0; buffer_size];
         let decompressed_bytes = tempfile.read(decompressed_content.as_mut_slice()).unwrap();
         let string_data = std::str::from_utf8(&decompressed_content[..decompressed_bytes]).unwrap();
         // From here you should see lines from the middle of the file, without

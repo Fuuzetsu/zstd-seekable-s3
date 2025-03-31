@@ -1,7 +1,7 @@
 [package]
 name = "zstd-seekable-s3"
 description = "Seekable zstd-compressed S3 objects."
-version = "0.8.0"
+version = "0.9.0"
 authors = ["Mateusz Kowalczyk <fuuzetsu@fuuzetsu.co.uk>"]
 edition = "2018"
 license = "BSD-3-Clause"
@@ -11,23 +11,27 @@ homepage = "https://github.com/Fuuzetsu/zstd-seekable-s3"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bytes = "1.0"
-futures = "0.3"
-rusoto_core = { version = "0.48", default-features = false }
-rusoto_s3 = { version = "0.48", default-features = false }
-tokio = "1.18.2"
-zstd-seekable = "0.1.7"
-pin-project-lite = "0.2"
-parking_lot = "0.11"
+bytes = { version = "1.0", default-features = false }
+futures = { version = "0.3", default-features = false }
+aws-sdk-s3 = { version = "1.81", default-features = false, features = [
+    "rt-tokio",
+] }
+tokio = { version = "1.18.2", default-features = false }
+zstd-seekable = { version = "0.1.7", default-features = false }
+pin-project-lite = { version = "0.2", default-features = false }
+parking_lot = { version = "0.11", default-features = false }
+thiserror = { version = "2.0.12", default-features = false }
 
 [dev-dependencies]
-env_logger = "0.8"
-rusoto_credential = "0.48"
-rusoto_sts = { version = "0.48", default-features = false }
-structopt = "0.3"
-tempfile = "3.2"
-tokio = { version = "1.18.2", features = ["fs"] }
-
-[features]
-default = ["rusoto_core/default", "rusoto_s3/default"]
-rustls = ["rusoto_core/rustls", "rusoto_s3/rustls"]
+aws-config = { version = "1.6", default-features = false, features = [
+    "default-https-client",
+] }
+env_logger = { version = "0.8", default-features = false }
+bpaf = { version = "0.9", default-features = false, features = ["derive"] }
+tempfile = { version = "3.2", default-features = false }
+tokio = { version = "1.44.1", default-features = false, features = [
+    "rt-multi-thread",
+    "macros",
+    "io-util",
+] }
+futures = { version = "0.3", default-features = false }

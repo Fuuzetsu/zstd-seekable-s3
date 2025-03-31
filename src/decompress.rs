@@ -40,7 +40,7 @@ impl Display for Error {
 
 impl std::error::Error for Error {}
 
-impl<'a, A> SeekableDecompress<'a, A>
+impl<A> SeekableDecompress<'_, A>
 where
     A: std::io::Read + std::io::Seek,
 {
@@ -72,7 +72,7 @@ where
     }
 }
 
-impl<'a, A> std::io::Seek for SeekableDecompress<'a, A> {
+impl<A> std::io::Seek for SeekableDecompress<'_, A> {
     // Seeking inside decompressed data does nothing except store the location
     // as there is no actual decompressed data on hand to seek in. We use this
     // location when we try to perform an actual read of the data.
@@ -103,7 +103,7 @@ impl<'a, A> std::io::Seek for SeekableDecompress<'a, A> {
     }
 }
 
-impl<'a, A> std::io::Read for SeekableDecompress<'a, A> {
+impl<A> std::io::Read for SeekableDecompress<'_, A> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let data_left = match self
             .decompressed_size

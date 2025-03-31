@@ -120,7 +120,7 @@ impl<S, E> Compress<S, E> {
 
         let mut cstream = cstream.lock();
         let mut out_pos = cstream.end_stream(buf_out)?;
-        let mut compressed_bytes = (&buf_out[..out_pos]).to_vec();
+        let mut compressed_bytes = buf_out[..out_pos].to_vec();
         while out_pos > 0 {
             out_pos = cstream.end_stream(buf_out)?;
             compressed_bytes.extend_from_slice(&buf_out[..out_pos])
